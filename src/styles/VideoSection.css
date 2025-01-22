@@ -80,6 +80,12 @@ canvas {
     text-align: center;
 }
 
+.ellipse-overlay {
+    pointer-events: none;
+    /* Stačí "pointer-events: none" a z-index, ak potrebujeme
+     ale inak style ovládam priamo vo "style={...}" v getEllipseStyle() */
+}
+
 .hidden {
     display: none;
 }

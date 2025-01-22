@@ -7,8 +7,8 @@ interface ControlsProps {
   onSaveIdentity: () => void;
   onVerifyIdentity: () => void;
   isCameraOn: boolean;
-  onToggleGuides: () => void;  // Prepína vodiace čiary + bounding box
-  showGuides: boolean;         // Stav
+  onToggleGuides: () => void;
+  showGuides: boolean;
 }
 
 const Controls: React.FC<ControlsProps> = ({
@@ -21,27 +21,24 @@ const Controls: React.FC<ControlsProps> = ({
 }) => {
   return (
     <div className="controls-container">
-      {/* Zapnutie / vypnutie kamery */}
       <button className="btn btn-primary" onClick={onStartVideo}>
         <i className={`fas ${isCameraOn ? "fa-stop" : "fa-camera"}`} />
         <span>{isCameraOn ? "Stop Camera" : "Start Camera"}</span>
       </button>
 
-      {/* Prepínanie vodiacich čiar a bounding boxov */}
       <button className="btn btn-secondary" onClick={onToggleGuides}>
         <i className={`fas ${showGuides ? "fa-eye-slash" : "fa-eye"}`} />
-        <span>{showGuides ? "Hide Lines" : "Show Lines"}</span>
+        <span>{showGuides ? "Hide Boxes" : "Show Boxes"}</span>
       </button>
 
-      {/* Napr. zakomentované tlačidlá */}
       {/*
-      <button className="btn btn-success" onClick={onSaveIdentity} disabled>
+      <button className="btn btn-success" onClick={onSaveIdentity}>
         <i className="fas fa-user-plus"></i>
-        <span>Uložiť identitu</span>
+        <span>Save Identity</span>
       </button>
-      <button className="btn btn-info" onClick={onVerifyIdentity} disabled>
+      <button className="btn btn-info" onClick={onVerifyIdentity}>
         <i className="fas fa-user-check"></i>
-        <span>Overiť identitu</span>
+        <span>Verify Identity</span>
       </button>
       */}
     </div>

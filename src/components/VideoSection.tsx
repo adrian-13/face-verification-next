@@ -2,8 +2,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import * as faceapi from "@vladmandic/face-api";
-import "../styles/VideoSection.css";
-import Controls from "./Controls";
+import "../styles/VideoSection.css";  // CSS
+import Controls from "./Controls";    // Tlačidlá
 
 type FaceSizeStatus = "none" | "small" | "big" | "ok";
 
@@ -11,30 +11,34 @@ const VideoSection: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Stavy pre modely a kameru
+  // Modely, kamera
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [isCameraOn, setIsCameraOn] = useState(false);
 
-  // Toggle, či skryjeme canvas (ovál + boxy)
+  // Prepínač, či zobrazovať bounding boxy
   const [showGuides, setShowGuides] = useState(true);
 
-  // **Tu meníme počiatočný text na "Camera is off"**
+  // Text a farba textu pre info o stave tváre
   const [infoText, setInfoText] = useState("Camera is off");
   const [infoColor, setInfoColor] = useState("white");
 
-  // Parametre oválu
-  let centerX = 0;
-  let centerY = 0;
-  let radiusX = 0;
-  let radiusY = 0;
+  // Uložíme si reálne rozmery zobrazeného videa (px)
+  const [videoRect, setVideoRect] = useState({ width: 0, height: 0 });
 
-  // Prahy
+  // **Prahy** pre veľkosť tváre:
+  // Zvýšime maxRatio na 0.8 (namiesto 0.7),
+  // aby tvár nebola tak rýchlo vyhodnotená ako „príliš veľká“.
   const minRatio = 0.6;
-  const maxRatio = 0.7;
+  const maxRatio = 0.9;
 
-  // ---------------------------------------------------------
-  // 1) Načítanie modelov FaceAPI
-  // ---------------------------------------------------------
+  // **Elipsa** parametre budeme počítať rovnako
+  // v HTML (getEllipseStyle) a v isFaceInsideEllipse + checkFaceSize
+  const ellipseMultX = 0.15;  // 15 % šírky ako radiusX
+  const ellipseRatio = 1.5;   // 1.5 pomer na výšku
+
+  /**
+   * 1) Načítanie modelov FaceAPI
+   */
   useEffect(() => {
     if (typeof window !== "undefined") {
       Promise.all([
@@ -43,36 +47,39 @@ const VideoSection: React.FC = () => {
         faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
       ])
         .then(() => {
-          console.log("Models Successfully Loaded");
+          console.log("Models loaded");
           setModelsLoaded(true);
         })
-        .catch((error) => {
-          console.error("Error Loading Models", error);
-        });
+        .catch((err) => console.error("Error loading models", err));
     }
   }, []);
 
-  // ---------------------------------------------------------
-  // 2) Handlovanie resize
-  // ---------------------------------------------------------
+  /**
+   * 2) Ukladáme reálne rozmery zobrazeného videa (getBoundingClientRect).
+   */
+  const updateVideoRect = () => {
+    if (!videoRef.current) return;
+    const rect = videoRef.current.getBoundingClientRect();
+    setVideoRect({ width: rect.width, height: rect.height });
+  };
+
   useEffect(() => {
-    const handleResize = () => {
-      if (showGuides && isCameraOn) {
-        drawFaceGuide("none");
-      } else {
+    function handleResize() {
+      updateVideoRect();
+      if (!showGuides) {
         clearCanvas();
       }
-    };
+    }
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [isCameraOn, showGuides]);
 
-  // ---------------------------------------------------------
-  // 3) Zapnutie / vypnutie videa
-  // ---------------------------------------------------------
+  /**
+   * 3) Zapnutie / vypnutie videa
+   */
   const startVideo = async () => {
     if (!modelsLoaded) {
-      console.warn("Models Not Loaded");
+      console.warn("Models are not loaded yet");
       return;
     }
     try {
@@ -84,17 +91,12 @@ const VideoSection: React.FC = () => {
         videoRef.current.onloadedmetadata = () => {
           videoRef.current?.play();
           setIsCameraOn(true);
+          setShowGuides(true);
 
-          // Nastavíme text, kým nezačne detekcia
           setInfoText("Align Your Face to the Center");
           setInfoColor("white");
 
-          if (showGuides) {
-            drawFaceGuide("none");
-          } else {
-            clearCanvas();
-          }
-
+          updateVideoRect();
           detectFaces();
         };
       }
@@ -111,132 +113,20 @@ const VideoSection: React.FC = () => {
     }
     setIsCameraOn(false);
     clearCanvas();
-
-    // Kamera je off => text = "Camera is off"
     setInfoText("Camera is off");
     setInfoColor("white");
+    setVideoRect({ width: 0, height: 0 });
+    setShowGuides(true)
   };
 
   const toggleVideo = () => {
-    if (isCameraOn) {
-      stopVideo();
-    } else {
-      startVideo();
-    }
+    if (isCameraOn) stopVideo();
+    else startVideo();
   };
 
-  // ---------------------------------------------------------
-  // 3b) Toggle pre skrytie canvasu (ovál + bounding box)
-  // ---------------------------------------------------------
-  const toggleGuidesHidden = () => {
-    setShowGuides((prev) => !prev);
-  };
-
-  // ---------------------------------------------------------
-  // 4) Kreslenie oválu
-  // ---------------------------------------------------------
-  const drawFaceGuide = (sizeStatus: FaceSizeStatus) => {
-    if (!canvasRef.current || !videoRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-
-    centerX = canvas.width / 2;
-    centerY = canvas.height / 2;
-    radiusX = canvas.width * 0.2;
-    radiusY = radiusX * 1.6;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    let ellipseColor = "rgba(255, 50, 50, 0.8)"; // default: červená
-    switch (sizeStatus) {
-      case "none":
-        ellipseColor = "rgba(255, 50, 50, 0.8)";
-        break;
-      case "small":
-      case "big":
-        ellipseColor = "rgba(255, 200, 0, 0.9)";
-        break;
-      case "ok":
-        ellipseColor = "rgba(0, 255, 0, 0.8)";
-        break;
-    }
-
-    // Elipsa
-    ctx.strokeStyle = ellipseColor;
-    ctx.lineWidth = 3;
-    ctx.setLineDash([10, 5]);
-    ctx.beginPath();
-    ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-    ctx.stroke();
-
-    // Vodiace čiary, ak showGuides = true
-    if (showGuides) {
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-      ctx.setLineDash([5, 5]);
-
-      const eyeLineY = centerY - radiusY * 0.2;
-      // Horizontálna čiara
-      ctx.beginPath();
-      ctx.moveTo(centerX - radiusX * 0.8, eyeLineY);
-      ctx.lineTo(centerX + radiusX * 0.8, eyeLineY);
-      ctx.stroke();
-
-      // Vertikálna čiara
-      ctx.beginPath();
-      ctx.moveTo(centerX, centerY - radiusY * 0.8);
-      ctx.lineTo(centerX, centerY + radiusY * 0.8);
-      ctx.stroke();
-
-      // Bodky pre oči
-      const drawEyePoint = (x: number, y: number) => {
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, 2 * Math.PI);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-        ctx.fill();
-      };
-      drawEyePoint(centerX - radiusX * 0.4, eyeLineY);
-      drawEyePoint(centerX + radiusX * 0.4, eyeLineY);
-    }
-  };
-
-  // ---------------------------------------------------------
-  // 5) Pomocné funkcie
-  // ---------------------------------------------------------
-  const isFaceInsideEllipse = (d: faceapi.FaceDetection, w: number) => {
-    const box = d.box;
-    const mirroredX = w - (box.x + box.width);
-    const faceCenterX = mirroredX + box.width / 2;
-    const faceCenterY = box.y + box.height / 2;
-
-    const nx = (faceCenterX - centerX) / radiusX;
-    const ny = (faceCenterY - centerY) / radiusY;
-    return nx * nx + ny * ny <= 1;
-  };
-
-  const checkFaceSize = (d: faceapi.FaceDetection, w: number) => {
-    const box = d.box;
-    const faceW = box.width;
-    const faceH = box.height;
-
-    const ellW = 2 * radiusX;
-    const ellH = 2 * radiusY;
-
-    const ratioW = faceW / ellW;
-    const ratioH = faceH / ellH;
-    const ratio = Math.min(ratioW, ratioH);
-
-    if (ratio < minRatio) return "small";
-    else if (ratio > maxRatio) return "big";
-    return "ok";
-  };
-
-  // ---------------------------------------------------------
-  // 6) detectFaces (loop)
-  // ---------------------------------------------------------
+  /**
+   * 4) Hlavná detekčná slučka
+   */
   const detectFaces = async () => {
     if (!videoRef.current || !canvasRef.current) return;
 
@@ -245,44 +135,46 @@ const VideoSection: React.FC = () => {
       new faceapi.SsdMobilenetv1Options()
     );
 
-    let sizeStatus: FaceSizeStatus = "none";
     let newText = "Align Your Face to the Center";
     let newColor = "white";
 
     if (detections.length === 0) {
-      sizeStatus = "none";
       newText = "No Face Detected";
       newColor = "red";
+      // Poďme nastaviť aj ovál na červený => "none"
+      setEllipseColorStatus("none");
     } else if (detections.length > 1) {
-      sizeStatus = "none";
       newText = "Multiple Faces Detected - Please Only One Person";
       newColor = "red";
+      setEllipseColorStatus("none");
     } else {
-      // 1 tvár
+      // Presne 1 tvár
       const detection = detections[0];
-      const cw = canvasRef.current!.width;
-      const inside = isFaceInsideEllipse(detection, cw);
+      const c = canvasRef.current!;
+      const w = c.width;
 
+      const inside = isFaceInsideEllipse(detection, w);
       if (!inside) {
-        sizeStatus = "none";
         newText = "Place Your Face in the Marked Oval";
         newColor = "red";
+        setEllipseColorStatus("none");
       } else {
-        // inside
-        const s = checkFaceSize(detection, cw); // small | big | ok
-        sizeStatus = s as FaceSizeStatus;
+        const s = checkFaceSize(detection, w);
         switch (s) {
           case "small":
             newText = "Move Closer";
             newColor = "orange";
+            setEllipseColorStatus("small");
             break;
           case "big":
             newText = "Move Further Away";
             newColor = "orange";
+            setEllipseColorStatus("big");
             break;
           case "ok":
             newText = "Great, You Are in the Correct Position";
             newColor = "green";
+            setEllipseColorStatus("ok");
             break;
         }
       }
@@ -291,30 +183,79 @@ const VideoSection: React.FC = () => {
     setInfoText(newText);
     setInfoColor(newColor);
 
-    drawFaceGuide(sizeStatus);
-
     if (showGuides) {
       drawDetections(detections);
+    } else {
+      clearCanvas();
     }
 
     requestAnimationFrame(detectFaces);
   };
 
-  // ---------------------------------------------------------
-  // 7) Vykreslenie bounding boxu
-  // ---------------------------------------------------------
+  /**
+   * 5) Overenie, či je stred tváre v elipse
+   */
+  const isFaceInsideEllipse = (d: faceapi.FaceDetection, w: number) => {
+    if (!canvasRef.current) return false;
+
+    const box = d.box;
+    const mirroredX = w - (box.x + box.width);
+    const faceCenterX = mirroredX + box.width / 2;
+    const faceCenterY = box.y + box.height / 2;
+
+    const centerX = canvasRef.current.width / 2;
+    const centerY = canvasRef.current.height / 2;
+
+    // Na šírke robíme radius
+    const radiusX = w * ellipseMultX; // 0.15
+    const radiusY = radiusX * ellipseRatio; // 1.5
+
+    const nx = (faceCenterX - centerX) / radiusX;
+    const ny = (faceCenterY - centerY) / radiusY;
+
+    return nx * nx + ny * ny <= 1;
+  };
+
+  /**
+   * checkFaceSize
+   */
+  const checkFaceSize = (d: faceapi.FaceDetection, w: number): FaceSizeStatus => {
+    const box = d.box;
+    const faceW = box.width;
+    const faceH = box.height;
+
+    const ellipseW = (w * ellipseMultX) * 2;
+    const ellipseH = ellipseW * ellipseRatio;
+
+    const ratioW = faceW / ellipseW;
+    const ratioH = faceH / ellipseH;
+    const ratio = Math.min(ratioW, ratioH);
+
+    if (ratio < minRatio) return "small";
+    else if (ratio > maxRatio) return "big";
+    return "ok";
+  };
+
+  /**
+   * 6) Vykreslenie bounding boxu
+   */
   const drawDetections = (detections: faceapi.FaceDetection[]) => {
     if (!canvasRef.current) return;
-    const ctx = canvasRef.current.getContext("2d");
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    detections.forEach((d) => {
-      const c = canvasRef.current!;
-      const box = d.box;
-      const mirroredX = c.width - (box.x + box.width);
+    canvas.width = videoRef.current!.videoWidth;
+    canvas.height = videoRef.current!.videoHeight;
 
-      const inside = isFaceInsideEllipse(d, c.width);
-      const fs = checkFaceSize(d, c.width);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    detections.forEach((d) => {
+      const box = d.box;
+      const mirroredX = canvas.width - (box.x + box.width);
+
+      const inside = isFaceInsideEllipse(d, canvas.width);
+      const fs = checkFaceSize(d, canvas.width);
 
       let color = "red";
       let statusText = "OUTSIDE";
@@ -352,9 +293,9 @@ const VideoSection: React.FC = () => {
     });
   };
 
-  // ---------------------------------------------------------
-  // clearCanvas
-  // ---------------------------------------------------------
+  /**
+   * Pomocné - vyčistenie canvasu
+   */
   const clearCanvas = () => {
     if (!canvasRef.current) return;
     const ctx = canvasRef.current.getContext("2d");
@@ -362,9 +303,18 @@ const VideoSection: React.FC = () => {
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
   };
 
-  // ---------------------------------------------------------
-  // Tlačidlá identity (zakomentované alebo neaktívne)
-  // ---------------------------------------------------------
+  /**
+   * Tlačidlo na toggle bounding box
+   */
+const toggleGuides = () => {
+  if (isCameraOn) {
+    setShowGuides((prev) => !prev);
+  }
+};
+
+  /**
+   * Tlačidlá identity
+   */
   const saveIdentity = () => {
     console.log("Save Identity (Function Not Implemented)");
   };
@@ -372,32 +322,106 @@ const VideoSection: React.FC = () => {
     console.log("Identity Verification (Function Not Implemented)");
   };
 
-  // ---------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------
+  /**
+   * 7) Meníme farbu HTML elipsy podľa stavu
+   *    "none" = červená, "small"/"big" = oranžová, "ok" = zelená
+   */
+  const [ellipseColorStatus, setEllipseColorStatus] = useState<FaceSizeStatus>("none");
+
+  // Preložíme si to na reálnu farbu
+  const getEllipseColor = () => {
+    switch (ellipseColorStatus) {
+      case "none":
+        return "rgba(255, 50, 50, 0.8)"; // red
+      case "small":
+      case "big":
+        return "rgba(255, 165, 0, 0.9)"; // orange
+      case "ok":
+        return "rgba(0, 255, 0, 0.8)"; // green
+    }
+  };
+
+  /**
+   * 8) Funkcia, ktorá spočíta style pre elipsu overlay
+   */
+  const getEllipseStyle = () => {
+    const w = videoRect.width;
+    const h = videoRect.height;
+    if (!w || !h) {
+      return { display: "none" };
+    }
+
+    // Polomery
+    const rx = w * ellipseMultX; // 0.15
+    const ry = rx * ellipseRatio; // 1.5
+
+    // Stred
+    const cx = w / 2;
+    // Trošku posunieme hore (napr. 5%)
+    const cy = h / 2 - h * 0.05;
+
+    // Farbu voláme cez getEllipseColor()
+    const borderColor = getEllipseColor() || "rgba(255, 50, 50, 0.8)";
+
+    return {
+      position: "absolute" as const,
+      width: `${rx * 2}px`,
+      height: `${ry * 2}px`,
+      left: `${cx - rx}px`,
+      top: `${cy - ry}px`,
+      border: `3px dashed ${borderColor}`,
+      borderRadius: "50%",
+      pointerEvents: "none" as const,
+    };
+  };
+
+  /**
+   * Render
+   */
   return (
-    <div className="video-wrapper">
-      <div className="video-container">
-        <video ref={videoRef} autoPlay muted playsInline />
-        <canvas 
+    <div className="video-wrapper" style={{ position: "relative" }}>
+      <div className="video-container" style={{ position: "relative", display: "inline-block" }}>
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          style={{ maxWidth: "100%" }}
+        />
+
+        {/* Canvas na bounding boxy */}
+        <canvas
           ref={canvasRef}
-          className={!showGuides ? "hidden" : ""}
+          className={showGuides && isCameraOn ? "" : "hidden"}
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+          }}
+        />
+
+        {/* Overlay elipsa ako HTML div, s farbou podľa ellipseColorStatus */}
+        <div
+          className="ellipse-overlay"
+          style={getEllipseStyle()}
         />
       </div>
 
-      {/** 
-       * Text o stave, farba podľa infoColor
-       */}
-      <div className="face-status-text" style={{ color: infoColor }}>
+      {/* Text ohľadom stavu tváre */}
+      <div
+        className="face-status-text"
+        style={{ color: infoColor, marginTop: "1rem" }}
+      >
         {infoText}
       </div>
 
+      {/* Ovládacie tlačidlá */}
       <Controls
         onStartVideo={toggleVideo}
         onSaveIdentity={saveIdentity}
         onVerifyIdentity={verifyIdentity}
         isCameraOn={isCameraOn}
-        onToggleGuides={toggleGuidesHidden}
+        onToggleGuides={toggleGuides}
         showGuides={showGuides}
       />
     </div>
